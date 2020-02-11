@@ -12,3 +12,8 @@ selects k objects as cluster centers and assigns other objects
 to the nearest cluster centers, and then improves the
 clustering by iteratively updating the cluster centers and
 reassigning the objects to the new centers.
+Danach wird alles optimiert mit Hilfe von:
+k-medoids [Huang, 1998]: a variation of k-means for
+categorical data, where the medoid (i.e., the object closest to
+the center), instead of the centroid, is used to represent a
+cluster.
