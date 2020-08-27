@@ -1,0 +1,207 @@
+---
+title: "Umsatz-Forcasting"
+author: "Hicham Harhar"
+date: "26 8 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Visualisation
+
+
+
+```{r Data}
+Umsatz <- Data %>%
+  select(Date,Volume)
+head(Umsatz)
+```
+##Tranferm the Date columne to Date
+```{r  Trans }
+Umsatz$Date<-as.Date(Umsatz$Date,"%m/%d/%y")
+str(Umsatz)
+head(Umsatz)
+```
+### Ein Spalte mit yearmonth kreieren und Order die Date-Spalte
+```{r Datum}
+Umsatz<-Umsatz%>%
+  mutate(Datum=yearmonth(Date),n=length(Volume) )
+Umsatz<-Umsatz[ order(Umsatz$Date , decreasing = FALSE ),]
+Umsatz
+```
+
+### Wochen-Spalte
+```{r}
+Umsatz<-Umsatz %>% 
+  mutate(week = cut.Date(Date, breaks = "1 week", labels = FALSE))
+
+
+```
+
+
+### Die relevanten Spalten selektieren, es handelt sich hier um ein monatliche Analyse
+```{r select}
+Umsatz_month<-Umsatz%>%
+  select(Datum,Volume,n)
+ 
+head(Umsatz_month)
+```
+```{r select}
+Umsatz_week<-Umsatz%>%
+  select(week,Volume)
+Umsatz_week<-aggregate(Umsatz_week["Volume"], by= Umsatz_week["week"], sum)
+head(Umsatz_week)
+
+```
+
+### Das Umsatz Groupieren nach Monaten
+```{r}
+Umsatz_Neu<-aggregate(Umsatz_Neu["Volume"], by=Umsatz_Neu["Datum"], sum)%>%mutate(n=seq_len(length.out = 24))
+Umsatz_Neu
+```
+
+
+### Monatliche Umsatz Time Serie 
+###Die Autokorrelation zeigt, dass unsere Time serie über kein Residuen verfügt 
+### Wir haben ein starken trend
+```{r sql}
+Umsatz_ts<-ts(Umsatz_Neu$Volume,start = c(2019,1,1),frequency = 12)
+plot(Umsatz_ts,col="blue",main="Umsatz-Zeitreihen")
+acf(Umsatz_ts)
+plot(decompose(Umsatz_ts))
+
+```
+#Die rote Farbe stellt das Train_Daten
+```{r}
+dcmp<-umsatz_train%>%
+  model(STL(Volume))%>%
+  components()%>%
+  select(-.model)
+dcmp
+dcmp %>%
+model(SNAIVE(season_adjust)) %>%
+forecast(h=12) %>%
+autoplot(dcmp) +
+  autolayer(umsatz_test,colour="red")+
+ggtitle("Naive forecasts of seasonally adjusted data")
+
+```
+
+### Bildung von Train und Test Daten
+```{r Train und Test}
+umsatz_train<-tsi_umsatz%>%
+  filter(n<= 15)
+umsatz_test<-tsi_umsatz%>%
+  filter(n>15 )
+head(umsatz_train)
+```
+
+### Creat a tsibble Data
+
+```{r}
+tsi_umsatz<-as_tsibble(Umsatz_Neu,index=Datum, key=NULL)
+
+model_TSLM<-umsatz_train%>%
+  model(tslm=TSLM(Volume~Datum))
+  model_TSLM%>%
+    forecast(h=12)%>%
+    autoplot(tsi_umsatz)
+gg_tsresiduals(model_TSLM)
+report(model_TSLM)
+```
+
+
+
+
+### Vergleich zwischen mehrere Modelle
+### Die Visualisierung gibt uns eine richtung bei der Modellbildung
+```{r}
+Umsatz_modell <-umsatz_train %>%
+  model(
+Seasonal_naive = SNAIVE(Volume),
+Naive = NAIVE(Volume),
+Drift = RW(Volume ~ drift()),
+Mean = MEAN(Volume)
+)
+Umsatz_for <- Umsatz_modell %>%
+forecast(h = 6)
+Umsatz_for%>%
+  autoplot(umsatz_train, level = NULL) +
+  autolayer(umsatz_test,colour="yellow")+
+ggtitle("Modell-Prognose") +
+xlab("Zeit") + ylab("Umsatz") +
+guides(colour = guide_legend(title = "Prognose"))
+
+```
+
+
+## Regression Methodik Prognose
+### Das Modell ist statistik Signifikant
+```{r}
+
+fit.beer <-  tslm(Umsatz_ts ~ trend )
+fcast <- forecast(fit.beer)
+autoplot(fcast) +
+  ggtitle("Forecasts of beer production using regression") +
+  xlab("Year") + ylab("megalitres")
+summary(fit.beer)
+
+```
+
+
+
+
+#### Wir benutzen jetzt eine Trend orientierte Methodik für die Prognise, denn der Trend beeinflusst stark unserer Daten
+### fc ist eine normale Holt winter Methodik, während fc2 über angepassten Trend verfügt
+```{r}
+fc <- holt(Umsatz_ts, h=15)
+fc2 <- holt(Umsatz_ts, damped=TRUE, phi = 0.9, h=15)
+autoplot(Umsatz_ts) +
+  autolayer(fc, series="Holt's method", PI=FALSE) +
+  autolayer(fc2, series="Damped Holt's method", PI=FALSE) +
+  ggtitle("Forecasts from Holt's method") + xlab("Year") +
+  ylab("Air passengers in Australia (millions)") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+
+### Arima(2,2,3) Model ist optimal für folgende Prognose, wir haben eine P-Value von 12% und ist für unsere Nullhypothese akzeptable mit einem konfidenzintervall von 80%  
+```{r}
+auto.arima(Umsatz_ts,
+           d = 2,
+  D = 1,
+  stationary = FALSE,
+  seasonal = FALSE,
+  ic = c("aicc", "aic", "bic"),
+  stepwise = TRUE,
+  nmodels = 94,
+  trace = TRUE,         
+           
+           )
+
+
+  model<-arima(x=Umsatz_ts,order=c(2,2,3))
+  model%>%
+  forecast(h=6)%>%
+  autoplot()
+  
+  summary(model)
+  checkresiduals(model)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
