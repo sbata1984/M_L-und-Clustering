@@ -1,2 +1,2 @@
 # Forcasting with TS
-C:\Users\hhich\Documents\Studium Hicham Harhar\R\
+In diesem Projekt wird eine Umsatzprognose auf Basis verschenen Modell (Naive,STLF, ARIMA und lineares regressionsmodell .....) durchgeführt.
